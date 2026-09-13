@@ -11,6 +11,7 @@
 
 ### Fixes
 
+* [FIX][cli] `new-wallet` and `new-account` now warn when an extra package contributes an account component with no procedures, while continuing to allow storage-only components ([#2534](https://github.com/0xMiden/rust-sdk/issues/2534)).
 * [FIX][rust] Refreshed tracked input notes after transport imports so the same sync detects their consumption ([#2453](https://github.com/0xMiden/rust-sdk/pull/2453)).
 * [FIX][rust] A private note fetched from the Note Transport Layer whose nullifier is already on chain is now imported as consumed instead of committed, so `get_consumable_notes` no longer reports notes the node will reject ([#2453](https://github.com/0xMiden/rust-sdk/pull/2453)).
 * [FIX][rust] Added validation of cached transaction encryption keys during deserialization. Unsupported encryption schemes and empty or oversized key IDs are rejected before reading the key ID bytes ([#2411](https://github.com/0xMiden/rust-sdk/pull/2411)).

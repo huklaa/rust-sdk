@@ -636,6 +636,15 @@ fn process_packages(
                 )
             })?;
 
+        if account_component.procedures().next().is_none() {
+            eprintln!(
+                "Warning: package `{}` contributes an account component with no procedures. This \
+                 is valid for storage-only components; otherwise mark the intended exports with \
+                 `@account_procedure` or `@auth_script`.",
+                package.name
+            );
+        }
+
         account_components.push(account_component);
     }
 

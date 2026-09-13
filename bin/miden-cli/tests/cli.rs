@@ -1556,6 +1556,52 @@ fn new_wallet_cli(cli_path: &Path, visibility: AccountType) -> String {
         .to_string()
 }
 
+/// Builds an account-component package whose public export is intentionally not marked as an
+/// account procedure. Such packages can legitimately provide storage, but users should be warned
+/// that the export will not be installed in the account procedure index.
+fn build_storage_only_component_masp(out_path: &Path) {
+    let component_package: Package = CodeBuilder::default()
+        .compile_component_code(
+            "miden::testing::storage_only",
+            r"
+                pub proc helper
+                    nop
+                end
+            ",
+        )
+        .expect("failed to compile storage-only component")
+        .into();
+
+    let metadata = AccountComponentMetadata::new("storage-only");
+    let mut package = component_package;
+    package.name = metadata.name().to_string().into();
+    package.version = metadata.version().clone();
+    package.kind = TargetType::AccountComponent;
+    package.description = Some(metadata.description().to_string());
+    package.sections =
+        vec![Section::new(SectionId::ACCOUNT_COMPONENT_METADATA, metadata.to_bytes())];
+
+    fs::write(out_path, package.to_bytes()).expect("failed to write storage-only .masp");
+}
+
+#[test]
+fn new_wallet_warns_when_extra_package_contributes_no_procedures() {
+    let (_, temp_dir, _) = init_cli();
+    let package_path = temp_dir.join("storage-only.masp");
+    build_storage_only_component_masp(&package_path);
+
+    let mut create_wallet_cmd = cargo_bin_cmd!("miden-client");
+    create_wallet_cmd
+        .args(["new-wallet", "-e", package_path.to_str().unwrap()])
+        .current_dir(&temp_dir)
+        .assert()
+        .success()
+        .stderr(
+            contains("Warning: package `storage-only` contributes an account component with no procedures")
+                .and(contains("`@account_procedure` or `@auth_script`")),
+        );
+}
+
 /// Runs `miden-client address encode` and returns the printed bech32 address.
 fn encode_address_cli(
     cli_path: &Path,
