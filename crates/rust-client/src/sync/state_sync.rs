@@ -1963,6 +1963,53 @@ mod tests {
             .unwrap()
     }
 
+    /// Materializing full account details rejects vault contents that are not committed by the
+    /// authenticated account header.
+    #[tokio::test]
+    async fn account_materialization_rejects_tampered_vault() {
+        let mut builder = MockChainBuilder::new();
+        let account = builder.add_existing_mock_account(miden_testing::Auth::IncrNonce).unwrap();
+        let rpc_api = MockRpcApi::new(builder.build().unwrap());
+
+        let (_, proof) = get_account_proof(&rpc_api, account.id()).await;
+        let (_, details) = proof.into_parts();
+        let mut details = details.expect("public account proof should include full details");
+        let faucet_id: AccountId = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into().unwrap();
+        let extra_asset = Asset::Fungible(FungibleAsset::new(faucet_id, 1).unwrap());
+        details.vault_details.assets.push(extra_asset);
+
+        assert!(matches!(Account::try_from(&details), Err(RpcError::InvalidResponse(_))));
+    }
+
+    /// Constructing an account proof rejects a storage header borrowed from a different account,
+    /// even when the account witness, account header, and code are otherwise consistent.
+    #[tokio::test]
+    async fn account_proof_rejects_foreign_storage_header() {
+        let mut builder = MockChainBuilder::new();
+        let account_a = builder.add_existing_mock_account(miden_testing::Auth::IncrNonce).unwrap();
+        let account_b = builder.add_existing_mock_account(miden_testing::Auth::BasicAuth).unwrap();
+        let rpc_api = MockRpcApi::new(builder.build().unwrap());
+
+        let (_, proof_a) = get_account_proof(&rpc_api, account_a.id()).await;
+        let (_, proof_b) = get_account_proof(&rpc_api, account_b.id()).await;
+        let (witness_a, details_a) = proof_a.into_parts();
+        let (_, details_b) = proof_b.into_parts();
+        let mut details_a = details_a.expect("public account proof should include full details");
+        let details_b = details_b.expect("public account proof should include full details");
+
+        assert_ne!(
+            details_a.storage_details.header.to_commitment(),
+            details_b.storage_details.header.to_commitment(),
+            "test accounts should have distinct storage commitments",
+        );
+        details_a.storage_details.header = details_b.storage_details.header;
+
+        assert!(matches!(
+            AccountProof::new(witness_a, Some(details_a)),
+            Err(crate::rpc::domain::account::AccountProofError::InconsistentStorageCommitment)
+        ));
+    }
+
     /// `validate_account_proof` rejects a proof whose account differs from the requested one.
     #[tokio::test]
     async fn validate_account_proof_rejects_mismatched_account() {

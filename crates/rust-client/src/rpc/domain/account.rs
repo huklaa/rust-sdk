@@ -312,7 +312,7 @@ impl TryFrom<&AccountDetails> for Account {
             RpcError::InvalidResponse(format!("rpc api returned non-valid storage slots: {err}"))
         })?;
 
-        Account::new(
+        let account = Account::new(
             details.header.id(),
             asset_vault,
             account_storage,
@@ -324,7 +324,15 @@ impl TryFrom<&AccountDetails> for Account {
             RpcError::InvalidResponse(format!(
                 "failed to construct account from rpc api response: {err}"
             ))
-        })
+        })?;
+
+        if account.to_commitment() != details.header.to_commitment() {
+            return Err(RpcError::InvalidResponse(
+                "account contents do not match the authenticated account header".into(),
+            ));
+        }
+
+        Ok(account)
     }
 }
 
@@ -663,7 +671,7 @@ impl AccountProof {
     ) -> Result<Self, AccountProofError> {
         if let Some(AccountDetails {
             header: account_header,
-            storage_details: _,
+            storage_details,
             code,
             ..
         }) = &account_details
@@ -676,6 +684,9 @@ impl AccountProof {
             }
             if code.commitment() != account_header.code_commitment() {
                 return Err(AccountProofError::InconsistentCodeCommitment);
+            }
+            if storage_details.header.to_commitment() != account_header.storage_commitment() {
+                return Err(AccountProofError::InconsistentStorageCommitment);
             }
         }
 
@@ -1043,4 +1054,9 @@ pub enum AccountProofError {
         "the received code commitment doesn't match the received account header's code commitment"
     )]
     InconsistentCodeCommitment,
+    #[error(
+        "the received storage commitment doesn't match the received account header's storage \
+         commitment"
+    )]
+    InconsistentStorageCommitment,
 }
