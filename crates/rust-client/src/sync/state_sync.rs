@@ -1586,7 +1586,7 @@ mod tests {
     use alloc::sync::Arc;
 
     use async_trait::async_trait;
-    use miden_protocol::account::Account;
+    use miden_protocol::account::{Account, AccountStorageHeader};
     use miden_protocol::assembly::DefaultSourceManager;
     use miden_protocol::asset::{Asset, FungibleAsset};
     use miden_protocol::block::BlockNumber;
@@ -1687,6 +1687,63 @@ mod tests {
             header.fee_parameters().clone(),
             header.timestamp(),
         )
+    }
+
+    #[tokio::test]
+    async fn account_proof_rejects_storage_header_mismatch() {
+        let mut builder = MockChainBuilder::new();
+        let account = builder.add_existing_mock_account(miden_testing::Auth::IncrNonce).unwrap();
+        let rpc_api = MockRpcApi::new(builder.build().unwrap());
+        let (_, proof) = rpc_api
+            .get_account(
+                account.id(),
+                GetAccountRequest::new()
+                    .with_storage(StorageMapFetch::All)
+                    .with_vault(VaultFetch::Always),
+            )
+            .await
+            .unwrap();
+        let (witness, details) = proof.into_parts();
+        let mut details = details.expect("public account proof should include details");
+        details.storage_details.header =
+            AccountStorageHeader::new(Vec::new()).expect("empty storage header is valid");
+
+        let result = AccountProof::new(witness, Some(details));
+
+        assert!(matches!(
+            result,
+            Err(crate::rpc::domain::account::AccountProofError::InconsistentStorageCommitment)
+        ));
+    }
+
+    #[tokio::test]
+    async fn account_materialization_rejects_vault_mismatch() {
+        let mut builder = MockChainBuilder::new();
+        let account = builder.add_existing_mock_account(miden_testing::Auth::IncrNonce).unwrap();
+        let rpc_api = MockRpcApi::new(builder.build().unwrap());
+        let (_, mut proof) = rpc_api
+            .get_account(
+                account.id(),
+                GetAccountRequest::new()
+                    .with_storage(StorageMapFetch::All)
+                    .with_vault(VaultFetch::Always),
+            )
+            .await
+            .unwrap();
+        let details = proof.details_mut().expect("public account proof should include details");
+        let faucet_id: AccountId = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into().unwrap();
+        details
+            .vault_details
+            .assets
+            .push(Asset::Fungible(FungibleAsset::new(faucet_id, 1).unwrap()));
+
+        let result = Account::try_from(&*details);
+
+        assert!(matches!(
+            result,
+            Err(RpcError::InvalidResponse(message))
+                if message.contains("authenticated account header")
+        ));
     }
 
     #[tokio::test]
